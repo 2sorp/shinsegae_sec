@@ -1,0 +1,15 @@
+{
+  "name": "shift-handover",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 127.0.0.1\"",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "node --test"
+  },
+  "dependencies": { "express": "^5.1.0", "react": "^19.1.0", "react-dom": "^19.1.0" },
+  "devDependencies": { "vite": "^7.0.0", "concurrently": "^9.2.0" }
+}
