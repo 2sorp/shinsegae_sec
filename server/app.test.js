@@ -106,10 +106,95 @@ test('invalid handover and tag inputs never insert records', async () => {
   try {
     const c = client(running.base);
     await c.request('/auth/register', account);
-    for (const patch of [{ date: '2026-02-30' }, { shift: '없는 조' }, { priority: '알수없음' }, { content: '' }, { title: 'x'.repeat(121) }, { tags: 'bad' }, { tags: ['has space'] }, { tags: [5] }, { tags: ['x'.repeat(31)] }, { tags: Array(11).fill('tag') }]) assert.equal((await c.request('/handovers', { ...entry, ...patch })).status, 400);
+    for (const patch of [{ priority: '알수없음' }, { content: '' }, { title: 'x'.repeat(121) }, { tags: 'bad' }, { tags: ['has space'] }, { tags: [5] }, { tags: ['x'.repeat(31)] }, { tags: Array(11).fill('tag') }]) assert.equal((await c.request('/handovers', { ...entry, ...patch })).status, 400);
     assert.equal((await c.request('/handovers/missing/close', {})).status, 404);
     assert.deepEqual(await (await c.request('/handovers')).json(), []);
   } finally { await running.stop(); }
+});
+
+test('personal shift settings persist and server assigns Korean registration date and current shift', async () => {
+  const folder = mkdtempSync(path.join(tmpdir(), 'handover-settings-'));
+  const database = path.join(folder, 'test.db');
+  let running;
+  try {
+    running = await start(database, { now: () => new Date('2026-09-22T15:01:00Z') });
+    const c = client(running.base);
+    assert.equal((await c.request('/settings')).status, 401);
+    await c.request('/auth/register', account);
+    assert.equal((await (await c.request('/settings')).json()).shift, 'SOD');
+    assert.equal((await c.request('/settings', { shift: 'invalid' })).status, 400);
+    await c.request('/settings', { shift: 'EOD' });
+    const payload = { ...entry }; delete payload.date; delete payload.shift;
+    const saved = await (await c.request('/handovers', payload)).json();
+    assert.equal(saved.shift, 'EOD');
+    assert.equal(saved.date, '2026-09-23');
+    assert.equal(saved.createdAt, '2026-09-22T15:01:00.000Z');
+    await c.request('/settings', { shift: 'DOD' });
+    const next = await (await c.request('/handovers', { ...payload, shift: 'EOD', date: '2000-01-01' })).json();
+    assert.equal(next.shift, 'DOD');
+    assert.equal(next.date, '2000-01-01');
+    assert.equal((await c.request('/handovers', { ...payload, date: '2026-02-30' })).status, 400);
+    assert.equal((await c.request('/handovers', { ...payload, date: '' })).status, 400);
+    await c.request('/settings', { shift: '지원' });
+    const support = await (await c.request('/handovers', { ...payload, date: '2026-09-21' })).json();
+    assert.equal(support.shift, '지원');
+    assert.equal(support.date, '2026-09-21');
+    assert.equal(support.createdAt, saved.createdAt);
+    await c.request('/settings', { shift: 'DOD' });
+    assert.equal((await (await c.request(`/handovers/${saved.id}`)).json()).shift, 'EOD');
+    const other = client(running.base);
+    await other.request('/auth/register', { ...account, username: 'other' });
+    assert.equal((await (await other.request('/settings')).json()).shift, 'SOD');
+    const cookie = c.cookie;
+    await running.stop(); running = null;
+    running = await start(database);
+    const result = await (await fetch(`${running.base}/settings`, { headers: { Cookie: cookie } })).json();
+    assert.equal(result.shift, 'DOD');
+  } finally {
+    if (running) await running.stop();
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('todos support completion, reopening, deletion, persistence and account isolation', async () => {
+  const folder = mkdtempSync(path.join(tmpdir(), 'handover-todos-'));
+  const database = path.join(folder, 'test.db');
+  let running;
+  try {
+    running = await start(database);
+    const c = client(running.base);
+    assert.equal((await c.request('/todos')).status, 401);
+    assert.equal((await c.request('/todos', { title: 'test' })).status, 401);
+    await c.request('/auth/register', account);
+    for (const title of ['', '  ', 'x'.repeat(301)]) assert.equal((await c.request('/todos', { title })).status, 400);
+    const response = await c.request('/todos', { title: '장비 점검' });
+    assert.equal(response.status, 201);
+    const item = await response.json();
+    assert.equal(item.completedAt, null);
+    const other = client(running.base);
+    await other.request('/auth/register', { ...account, username: 'other' });
+    assert.deepEqual(await (await other.request('/todos')).json(), []);
+    assert.equal((await other.request(`/todos/${item.id}/status`, { completed: true })).status, 404);
+    assert.equal((await other.request(`/todos/${item.id}/delete`, {})).status, 404);
+    assert.equal((await c.request(`/todos/${item.id}/status`, { completed: 'yes' })).status, 400);
+    const done = await (await c.request(`/todos/${item.id}/status`, { completed: true })).json();
+    assert.ok(done.completedAt);
+    const cookie = c.cookie;
+    await running.stop(); running = null;
+    running = await start(database);
+    const restored = client(running.base);
+    const login = await restored.request('/auth/login', account);
+    assert.equal(login.status, 200);
+    const items = await (await fetch(`${running.base}/todos`, { headers: { Cookie: cookie } })).json();
+    assert.equal(items[0].completedAt, done.completedAt);
+    const reopened = await (await restored.request(`/todos/${item.id}/status`, { completed: false })).json();
+    assert.equal(reopened.completedAt, null);
+    assert.equal((await restored.request(`/todos/${item.id}/delete`, {})).status, 200);
+    assert.deepEqual(await (await restored.request('/todos')).json(), []);
+  } finally {
+    if (running) await running.stop();
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test('expired sessions are rejected and production cookie is Secure', async () => {

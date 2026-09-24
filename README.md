@@ -4,7 +4,7 @@ React + Vite 화면과 Node.js + Express API, SQLite 저장소로 구성한 초�
 
 ## 기능
 
-- 근무일·근무조(SOD/DOD/EOD)별 기록 등록
+- 근무일·근무조(SOD/DOD/EOD/지원)별 기록 등록
 - 작성자, 제목, 업무 내용, 특이사항, 중요도 관리
 - 날짜·근무조·확인 상태 필터와 텍스트 검색
 - 댓글로 처리 과정 기록 (로그인 작성자·작성 시각 자동 저장)
@@ -14,6 +14,9 @@ React + Vite 화면과 Node.js + Express API, SQLite 저장소로 구성한 초�
 - 로그인 계정으로 작성자·댓글 작성자·종료자 자동 기록
 - 해시태그 등록, 검색 및 태그 선택 필터
 - 기간을 지정한 고정 인수인계
+- 우측 상단 계정정보의 근무 설정에서 근무형태(SOD/DOD/EOD/지원)와 근무일 지정
+- 근무일 기본값은 오늘(한국 시간), 등록 시각은 서버 자동 기록
+- 개인 To-do list: 할 일 추가·완료·완료 취소·삭제 및 상태별 조회
 
 ## 실행
 
@@ -56,6 +59,12 @@ npm.cmd run dev
 | `POST /api/auth/login` | 아이디·비밀번호 로그인 |
 | `POST /api/auth/logout` | 세션 폐기 |
 | `GET /api/auth/me` | 로그인 사용자 |
+| `GET /api/settings` | 내 근무형태 (초기 기본값 SOD) |
+| `POST /api/settings` | `{ "shift": "DOD" }` 상태 설정 저장 |
+| `GET /api/todos` | 내 할 일 목록 |
+| `POST /api/todos` | `{ "title": "장비 점검" }` 추가 (최대 300자) |
+| `POST /api/todos/:id/status` | `{ "completed": true }` 완료, false로 완료 취소 |
+| `POST /api/todos/:id/delete` | `{}`로 내 할 일 삭제 |
 | `GET /api/handovers` | 진행 중 목록 (기본), `?status=closed` 종료 이력, `?status=all` 전체, `tag` 필터 병용 가능 |
 | `GET /api/handovers/:id` | 상세 내용과 댓글 이력 |
 | `POST /api/handovers` | 기록 등록 |
@@ -63,6 +72,8 @@ npm.cmd run dev
 | `POST /api/handovers/:id/close` | `{}`로 종료 처리 |
 
 기본 바인딩 주소는 `127.0.0.1`입니다. `HOST`, `PORT`, `DATABASE_PATH` 환경 변수로 변경할 수 있습니다.
+상단 메뉴에서 인수인계와 To-do list(`#todos`)로 이동합니다. 우측 상단 계정정보의 ‘근무 설정’에서 근무형태와 근무일을 변경하고 저장합니다. 근무형태는 계정별로 저장되며 날짜는 오늘(한국 시간)이 기본값입니다. 변경한 날짜는 현재 접속 중에 적용되고 새로 접속하면 오늘로 초기화됩니다. 인수인계 생성 시 서버가 계정의 근무형태와 요청의 `date`를 적용합니다. 날짜 생략 시 오늘을 사용하며 잘못된 날짜는 거부합니다. 요청의 `shift`는 무시합니다. 설정을 변경해도 기존 기록은 바뀌지 않습니다. 고정 시작일·종료일은 별도로 지정합니다.
+To-do는 개인 목록입니다. 다른 사용자의 항목을 조회·변경·삭제할 수 없습니다. 완료 체크로 완료 취소도 가능하며 삭제는 화면에서 한 번 확인합니다.
 첫 접속 시 회원가입으로 계정을 만드세요. 가입한 모든 사용자는 공동 인수인계를 조회·작성·댓글 등록·종료할 수 있습니다. 관리자 승인, 역할별 권한, 비밀번호 재설정은 아직 포함하지 않습니다.
 비밀번호는 임의 salt와 scrypt 해시로 저장합니다. 로그인은 SQLite에 저장한 12시간 세션과 HttpOnly·SameSite=Strict 쿠키를 사용합니다. HTTPS 배포에서는 `COOKIE_SECURE=true`로 설정하세요.
 모든 POST 요청은 `Content-Type: application/json`, `X-Handover-Request: 1` 헤더가 필요합니다. 인증 시도는 IP당 15분에 20회로 제한됩니다.

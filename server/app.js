@@ -21,7 +21,7 @@ function validDate(value, label) {
   return date;
 }
 
-const shifts = ['SOD', 'DOD', 'EOD'];
+const shifts = ['SOD', 'DOD', 'EOD', '지원'];
 function invalid(message) { return Object.assign(new Error(message), { status: 400 }); }
 function field(value, label, max, required = true) {
   if (typeof value !== 'string' || value.trim().length > max || (required && !value.trim())) {
@@ -46,7 +46,7 @@ function validate(body) {
     issues: field(body.issues ?? '', '특이사항', 5000, false), tags: tagsFrom(body.tags) };
 }
 
-export function createApp({ databasePath = ':memory:', distPath, secureCookies = false, sessionLifetime } = {}) {
+export function createApp({ databasePath = ':memory:', distPath, secureCookies = false, sessionLifetime, now = () => new Date() } = {}) {
   if (databasePath !== ':memory:') mkdirSync(path.dirname(databasePath), { recursive: true });
   const db = new DatabaseSync(databasePath);
   db.exec(`PRAGMA journal_mode = WAL;
@@ -79,6 +79,39 @@ export function createApp({ databasePath = ':memory:', distPath, secureCookies =
   app.disable('x-powered-by');
   app.use(express.json({ limit: '64kb' }));
   installAuth(app, db, { secureCookies, sessionLifetime });
+  db.exec(`CREATE TABLE IF NOT EXISTS user_settings (userId TEXT PRIMARY KEY, shift TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS todos (id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL, createdAt TEXT NOT NULL, completedAt TEXT);
+    CREATE INDEX IF NOT EXISTS todos_user ON todos(userId);`);
+  const settings = id => db.prepare('SELECT shift FROM user_settings WHERE userId = ?').get(id) ?? { shift: 'SOD' };
+  app.get('/api/settings', (req, res) => res.json(settings(req.user.id)));
+  app.post('/api/settings', (req, res) => {
+    if (!shifts.includes(req.body?.shift)) throw invalid('근무형태를 선택해 주세요.');
+    db.prepare('INSERT INTO user_settings VALUES (?, ?) ON CONFLICT(userId) DO UPDATE SET shift = excluded.shift').run(req.user.id, req.body.shift);
+    res.json(settings(req.user.id));
+  });
+  app.get('/api/todos', (req, res) => res.json(db.prepare('SELECT * FROM todos WHERE userId = ? ORDER BY createdAt DESC, rowid DESC').all(req.user.id)));
+  app.post('/api/todos', (req, res) => {
+    const title = field(req.body?.title, '할 일', 300);
+    const id = randomUUID();
+    db.prepare('INSERT INTO todos VALUES (?, ?, ?, ?, NULL)').run(id, req.user.id, title, now().toISOString());
+    res.status(201).json(db.prepare('SELECT * FROM todos WHERE id = ?').get(id));
+  });
+  function ownTodo(req) {
+    const item = db.prepare('SELECT * FROM todos WHERE id = ? AND userId = ?').get(req.params.id, req.user.id);
+    if (!item) throw Object.assign(new Error('할 일을 찾을 수 없습니다.'), { status: 404 });
+    return item;
+  }
+  app.post('/api/todos/:id/status', (req, res) => {
+    const item = ownTodo(req);
+    if (typeof req.body?.completed !== 'boolean') throw invalid('완료 상태가 올바르지 않습니다.');
+    db.prepare('UPDATE todos SET completedAt = ? WHERE id = ? AND userId = ?').run(req.body.completed ? item.completedAt ?? now().toISOString() : null, item.id, req.user.id);
+    res.json(db.prepare('SELECT * FROM todos WHERE id = ?').get(item.id));
+  });
+  app.post('/api/todos/:id/delete', (req, res) => {
+    const item = ownTodo(req);
+    db.prepare('DELETE FROM todos WHERE id = ? AND userId = ?').run(item.id, req.user.id);
+    res.json({ ok: true });
+  });
   app.get('/api/handovers', (req, res) => {
     const status = req.query.status ?? 'active';
     if (!['active', 'closed', 'all'].includes(status)) throw invalid('올바른 조회 상태를 선택해 주세요.');
@@ -90,7 +123,9 @@ export function createApp({ databasePath = ':memory:', distPath, secureCookies =
   });
   app.get('/api/handovers/:id', (req, res) => res.json(detail(req.params.id)));
   app.post('/api/handovers', (req, res) => {
-    const entry = { id: randomUUID(), ...validate({ ...req.body, author: req.user.name }), createdAt: new Date().toISOString() };
+    const created = now();
+    const date = req.body?.date ?? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(created);
+    const entry = { id: randomUUID(), ...validate({ ...req.body, author: req.user.name, date, shift: settings(req.user.id).shift }), createdAt: created.toISOString() };
     db.prepare(`INSERT INTO handovers (id, date, shift, priority, author, title, content, issues, createdAt, tags, authorId, kind, pinStart, pinEnd)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(entry.id, entry.date, entry.shift, entry.priority, entry.author, entry.title, entry.content, entry.issues, entry.createdAt, JSON.stringify(entry.tags), req.user.id, entry.kind, entry.pinStart, entry.pinEnd);
     res.status(201).json(detail(entry.id));

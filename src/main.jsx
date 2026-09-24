@@ -3,13 +3,11 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 import './auth-tags.css';
 import './workflow.css';
+import './personal.css';
+import { AccountSettings, TodoPage } from './personal-pages.jsx';
 import { seoulDate, isPinned, selectEntries } from './handover-view.js';
 
-const today = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
-const fresh = (kind = '일반') => ({ date: today(), shift: 'SOD', priority: '일반', title: '', content: '', issues: '', tags: '', kind, pinStart: seoulDate(), pinEnd: seoulDate() });
+const fresh = (kind = '일반') => ({ priority: '일반', title: '', content: '', issues: '', tags: '', kind, pinStart: seoulDate(), pinEnd: seoulDate() });
 const emptyFilters = () => ({ date: '', shift: '', kind: '', query: '', tag: '' });
 async function api(url, options) {
   const response = await fetch(url, options);
@@ -68,6 +66,14 @@ function App() {
 }
 
 function Dashboard({ user, onLogout }) {
+  const route = () => ['#todos'].includes(window.location.hash) ? window.location.hash.slice(1) : 'handovers';
+  const [page, setPage] = useState(route);
+  const [settings, setSettings] = useState(null);
+  useEffect(() => {
+    const navigate = () => setPage(route());
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,6 +81,8 @@ function Dashboard({ user, onLogout }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [tab, setTab] = useState('active');
   const [day, setDay] = useState(seoulDate);
+  const [customDate, setCustomDate] = useState(null);
+  const workDate = customDate ?? day;
   const [comment, setComment] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -83,7 +91,10 @@ function Dashboard({ user, onLogout }) {
   const [busy, setBusy] = useState(false);
   async function refresh() {
     setLoading(true); setError('');
-    try { setEntries(await api('/api/handovers?status=all')); }
+    try {
+      const [records, current] = await Promise.all([api('/api/handovers?status=all'), api('/api/settings')]);
+      setEntries(records); setSettings(current);
+    }
     catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
@@ -121,7 +132,7 @@ function Dashboard({ user, onLogout }) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
       const tags = form.tags.split(/[\s,#]+/u).filter(Boolean);
-      const saved = await post('/api/handovers', { ...form, tags });
+      const saved = await post('/api/handovers', { ...form, tags, date: customDate ?? seoulDate() });
       setEntries(old => [saved, ...old].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)));
       setForm(null); setFilters(emptyFilters()); setTab('active'); setNotice('인수인계 기록이 등록되었습니다.');
     } catch (e) { setError(e.message); }
@@ -151,8 +162,11 @@ function Dashboard({ user, onLogout }) {
   const allTags = [...new Set(entries.filter(entry => Boolean(entry.closedAt) === (tab === 'closed')).flatMap(entry => entry.tags))].sort((a, b) => a.localeCompare(b, 'ko'));
 
   return <>
-    <header><a href="/" className="brand"><span className="brand-mark">↗</span>다음 근무<span className="brand-sub">교대 근무 인수인계</span></a><div className="user-menu"><span>{user.name} 님</span><button className="text-button" disabled={busy} onClick={logout}>로그아웃</button></div></header>
-    <main>
+    <header><a href="/" className="brand"><span className="brand-mark">↗</span>다음 근무<span className="brand-sub">교대 근무 인수인계</span></a><div className="user-menu"><span>{user.name} 님</span><AccountSettings settings={settings} onSave={setSettings} post={post} date={workDate} onDateChange={setCustomDate} today={day} /><button className="text-button" disabled={busy} onClick={logout}>로그아웃</button></div></header>
+    <nav className="app-nav" aria-label="메인 메뉴">{[['handovers', '인수인계'], ['todos', 'To-do list']].map(([value, label]) => <a key={value} href={`#${value}`} aria-current={page === value ? 'page' : undefined} className={page === value ? 'active' : ''}>{label}</a>)}</nav>
+    {page === 'todos' && <TodoPage api={api} post={post} />}
+    {page !== 'handovers' && error && <p className="error" role="alert">{error}</p>}
+    {page === 'handovers' && <main>
       <section className="intro"><div><p className="eyebrow">SHIFT HANDOVER</p><h1>다음 근무도, 빈틈없이.</h1><p>처리 과정을 함께 기록하고 완료한 업무는 종료 이력으로 남기세요.</p></div><div className="create-buttons"><button onClick={() => { setError(''); setForm(fresh('고정')); }}>⌖ 고정 인수인계</button><button className="primary" onClick={() => { setError(''); setForm(fresh()); }}>＋ 인수인계 작성</button></div></section>
       <section className="stats" aria-label="인수인계 현황">
         <article><span>진행 중</span><strong>{loading ? '—' : pending.length}<small>건</small></strong><p>종료 전까지 이어가는 인수인계</p></article>
@@ -167,7 +181,7 @@ function Dashboard({ user, onLogout }) {
         <div className="filters">
           <label className="search">검색<input type="search" placeholder="제목, 내용, 작성자, #해시태그 검색" value={filters.query} onChange={e => filter('query', e.target.value)} /></label>
           <label>근무일<input type="date" value={filters.date} onChange={e => filter('date', e.target.value)} /></label>
-          <label>근무조<select value={filters.shift} onChange={e => filter('shift', e.target.value)}><option value="">전체 근무조</option>{['SOD', 'DOD', 'EOD'].map(s => <option key={s}>{s}</option>)}</select></label>
+          <label>근무조<select value={filters.shift} onChange={e => filter('shift', e.target.value)}><option value="">전체 근무조</option>{['SOD', 'DOD', 'EOD', '지원'].map(s => <option key={s}>{s}</option>)}</select></label>
           <label>유형<select value={filters.kind} onChange={e => filter('kind', e.target.value)}><option value="">전체 유형</option><option>일반</option><option value="고정">고정 인수인계</option></select></label>
         </div>
         {allTags.length > 0 && <div className="tag-filters" aria-label="해시태그 필터"><button className={!filters.tag ? 'tag active' : 'tag'} aria-pressed={!filters.tag} onClick={() => filter('tag', '')}>전체 태그</button>{allTags.map(tag => <button key={tag} className={`tag ${filters.tag === tag ? 'active' : ''}`} aria-pressed={filters.tag === tag} onClick={() => filter('tag', filters.tag === tag ? '' : tag)}>#{tag}</button>)}</div>}
@@ -178,14 +192,15 @@ function Dashboard({ user, onLogout }) {
         </button>)}</div>}
       </section>
       <footer>기록으로 이어지는 안전한 교대 근무</footer>
-    </main>
+    </main>}
     {modalOpen && <dialog aria-labelledby="dialog-title" onCancel={e => { e.preventDefault(); close(); }}>
       <div className="dialog-heading"><div><p className="eyebrow">HANDOVER NOTE</p><h2 id="dialog-title">{form ? '인수인계 작성' : selected.title}</h2></div><button className="close" aria-label="닫기" disabled={busy} onClick={close}>×</button></div>
       {error && <p className="error" role="alert">{error}</p>}
       {form ? <form onSubmit={save}>
         <label>인수인계 유형<select value={form.kind} onChange={e => edit('kind', e.target.value)}><option>일반</option><option value="고정">고정 인수인계</option></select></label>
         {form.kind !== '일반' && <div className="pin-settings"><div className="period-inputs"><label>고정 시작일<input type="date" required value={form.pinStart} onChange={e => edit('pinStart', e.target.value)} /></label><label>고정 종료일<input type="date" required min={form.pinStart} value={form.pinEnd} onChange={e => edit('pinEnd', e.target.value)} /></label></div><p className="field-help">한국 시간 기준, 시작일~종료일 포함 상단 고정됩니다. 기간이 지나도 직접 종료할 때까지 진행 중에 남습니다.</p></div>}
-        <div className="form-row"><label>근무일<input required type="date" value={form.date} onChange={e => edit('date', e.target.value)} /></label><label>근무조<select value={form.shift} onChange={e => edit('shift', e.target.value)}>{['SOD', 'DOD', 'EOD'].map(s => <option key={s}>{s}</option>)}</select></label><label>중요도<select value={form.priority} onChange={e => edit('priority', e.target.value)}>{['일반', '중요', '긴급'].map(s => <option key={s}>{s}</option>)}</select></label></div>
+        <p className="identity-note">근무형태: <strong>{settings?.shift ?? '불러오는 중'}</strong> · 근무일: <strong>{workDate}</strong><br />근무형태와 날짜는 우측 상단 계정정보의 ‘근무 설정’에서 변경할 수 있습니다.</p>
+        <label>중요도<select value={form.priority} onChange={e => edit('priority', e.target.value)}>{['일반', '중요', '긴급'].map(s => <option key={s}>{s}</option>)}</select></label>
         <p className="identity-note">작성자: <strong>{user.name}</strong> · 로그인한 계정으로 기록됩니다.</p>
         <label>제목<input required maxLength={120} placeholder="핵심 내용을 한 줄로 정리해 주세요" value={form.title} onChange={e => edit('title', e.target.value)} /></label>
         <label>인수인계 내용<textarea required rows={5} maxLength={10000} placeholder="완료한 업무, 진행 중인 업무, 다음 근무자가 할 일을 적어주세요." value={form.content} onChange={e => edit('content', e.target.value)} /></label>
