@@ -162,12 +162,12 @@ function Dashboard({ user, onLogout }) {
   const allTags = [...new Set(entries.filter(entry => Boolean(entry.closedAt) === (tab === 'closed')).flatMap(entry => entry.tags))].sort((a, b) => a.localeCompare(b, 'ko'));
 
   return <>
-    <header><a href="/" className="brand"><span className="brand-mark">↗</span>다음 근무<span className="brand-sub">교대 근무 인수인계</span></a><div className="user-menu"><span>{user.name} 님</span><AccountSettings settings={settings} onSave={setSettings} post={post} date={workDate} onDateChange={setCustomDate} today={day} /><button className="text-button" disabled={busy} onClick={logout}>로그아웃</button></div></header>
+    <header className="dashboard-header"><a href="/" className="brand"><span className="brand-mark">↗</span>다음 근무</a>
     <nav className="app-nav" aria-label="메인 메뉴">{[['handovers', '인수인계'], ['todos', 'To-do list']].map(([value, label]) => <a key={value} href={`#${value}`} aria-current={page === value ? 'page' : undefined} className={page === value ? 'active' : ''}>{label}</a>)}</nav>
+    <div className="user-menu"><span>{user.name} 님</span><AccountSettings settings={settings} onSave={setSettings} post={post} date={workDate} onDateChange={setCustomDate} today={day} /><button className="text-button" disabled={busy} onClick={logout}>로그아웃</button></div></header>
     {page === 'todos' && <TodoPage api={api} post={post} />}
     {page !== 'handovers' && error && <p className="error" role="alert">{error}</p>}
-    {page === 'handovers' && <main>
-      <section className="intro"><div><p className="eyebrow">SHIFT HANDOVER</p><h1>다음 근무도, 빈틈없이.</h1><p>처리 과정을 함께 기록하고 완료한 업무는 종료 이력으로 남기세요.</p></div><div className="create-buttons"><button onClick={() => { setError(''); setForm(fresh('고정')); }}>⌖ 고정 인수인계</button><button className="primary" onClick={() => { setError(''); setForm(fresh()); }}>＋ 인수인계 작성</button></div></section>
+    {page === 'handovers' && <main className="handover-page">
       <section className="stats" aria-label="인수인계 현황">
         <article><span>진행 중</span><strong>{loading ? '—' : pending.length}<small>건</small></strong><p>종료 전까지 이어가는 인수인계</p></article>
         <article><span>기간 내 고정</span><strong>{loading ? '—' : pending.filter(e => isPinned(e, day)).length}<small>건</small></strong><p>현재 적용 중인 고정 인수인계</p></article>
@@ -192,6 +192,7 @@ function Dashboard({ user, onLogout }) {
         </button>)}</div>}
       </section>
       <footer>기록으로 이어지는 안전한 교대 근무</footer>
+      <button className="primary handover-create" onClick={() => { setError(''); setForm(fresh()); }}>＋ 인수인계 작성</button>
     </main>}
     {modalOpen && <dialog aria-labelledby="dialog-title" onCancel={e => { e.preventDefault(); close(); }}>
       <div className="dialog-heading"><div><p className="eyebrow">HANDOVER NOTE</p><h2 id="dialog-title">{form ? '인수인계 작성' : selected.title}</h2></div><button className="close" aria-label="닫기" disabled={busy} onClick={close}>×</button></div>
