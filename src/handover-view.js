@@ -2,6 +2,7 @@ export const seoulDate = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asi
 export const isPinned = (entry, date) => !entry.closedAt && entry.kind === '고정' && entry.pinStart <= date && date <= entry.pinEnd;
 export function selectEntries(entries, tab, filters, date) {
   return entries.filter(entry => Boolean(entry.closedAt) === (tab === 'closed')
+    && (tab !== 'pinned' || isPinned(entry, date))
     && (!filters.date || entry.date === filters.date)
     && (!filters.shift || entry.shift === filters.shift)
     && (!filters.kind || entry.kind === filters.kind)

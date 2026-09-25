@@ -19,5 +19,8 @@ test('main tab excludes closed records, pins active fixed records first, preserv
   const entries = [ordinary, closed, expired, fixed];
   assert.deepEqual(selectEntries(entries, 'active', filters, '2026-09-22').map(e => e.id), ['fixed', 'normal', 'expired']);
   assert.deepEqual(selectEntries(entries, 'closed', filters, '2026-09-22').map(e => e.id), ['closed']);
+  assert.deepEqual(selectEntries(entries, 'pinned', filters, '2026-09-22').map(e => e.id), ['fixed']);
+  assert.deepEqual(selectEntries(entries, 'pinned', filters, '2026-09-24'), []);
+  assert.deepEqual(selectEntries(entries, 'pinned', { ...filters, query: 'missing' }, '2026-09-22'), []);
   assert.equal(selectEntries(entries, 'active', { ...filters, query: '#점검', kind: '고정' }, '2026-09-22').length, 2);
 });

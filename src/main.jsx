@@ -159,7 +159,7 @@ function Dashboard({ user, onLogout }) {
   function edit(key, value) { setForm(old => ({ ...old, [key]: value })); }
   const visible = selectEntries(entries, tab, filters, day);
   const pending = entries.filter(entry => !entry.closedAt);
-  const allTags = [...new Set(entries.filter(entry => Boolean(entry.closedAt) === (tab === 'closed')).flatMap(entry => entry.tags))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const allTags = [...new Set(selectEntries(entries, tab, emptyFilters(), day).flatMap(entry => entry.tags))].sort((a, b) => a.localeCompare(b, 'ko'));
 
   return <>
     <header className="dashboard-header"><a href="/" className="brand"><span className="brand-mark">↗</span>다음 근무</a>
@@ -168,16 +168,11 @@ function Dashboard({ user, onLogout }) {
     {page === 'todos' && <TodoPage api={api} post={post} />}
     {page !== 'handovers' && error && <p className="error" role="alert">{error}</p>}
     {page === 'handovers' && <main className="handover-page">
-      <section className="stats" aria-label="인수인계 현황">
-        <article><span>진행 중</span><strong>{loading ? '—' : pending.length}<small>건</small></strong><p>종료 전까지 이어가는 인수인계</p></article>
-        <article><span>기간 내 고정</span><strong>{loading ? '—' : pending.filter(e => isPinned(e, day)).length}<small>건</small></strong><p>현재 적용 중인 고정 인수인계</p></article>
-        <article><span>긴급 처리</span><strong className="urgent-number">{loading ? '—' : pending.filter(e => e.priority === '긴급').length}<small>건</small></strong><p>진행 중인 긴급 인수인계</p></article>
-      </section>
       {error && !modalOpen && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
       <section className="records">
-        <nav className="workflow-tabs" aria-label="인수인계 분류">{[['active', '진행 중', pending.length], ['closed', '종료 이력', entries.length - pending.length]].map(([value, label, count]) => <button key={value} aria-pressed={tab === value} className={tab === value ? 'active' : ''} onClick={() => { setTab(value); setFilters(emptyFilters()); }}>{label} <span>{count}</span></button>)}</nav>
-        <div className="section-heading"><h2>{tab === 'closed' ? '종료된 인수인계' : '진행 중인 인수인계'} <span>{visible.length}</span></h2><button className="text-button" disabled={loading} onClick={refresh}>↻ 새로고침</button></div>
+        <nav className="workflow-tabs" aria-label="인수인계 분류">{[['active', '진행중', pending.length], ['pinned', '고정', pending.filter(entry => isPinned(entry, day)).length], ['closed', '종료', entries.length - pending.length]].map(([value, label, count]) => <button key={value} aria-pressed={tab === value} className={tab === value ? 'active' : ''} onClick={() => { setTab(value); setFilters(emptyFilters()); }}>{label} <span>{loading ? '—' : count}</span></button>)}</nav>
+        <div className="section-heading"><h2>{tab === 'closed' ? '종료된 인수인계' : tab === 'pinned' ? '기간 내 고정 인수인계' : '진행 중인 인수인계'} <span>{visible.length}</span></h2><button className="text-button" disabled={loading} onClick={refresh}>↻ 새로고침</button></div>
         <div className="filters">
           <label className="search">검색<input type="search" placeholder="제목, 내용, 작성자, #해시태그 검색" value={filters.query} onChange={e => filter('query', e.target.value)} /></label>
           <label>근무일<input type="date" value={filters.date} onChange={e => filter('date', e.target.value)} /></label>
@@ -191,7 +186,7 @@ function Dashboard({ user, onLogout }) {
           <span className={`status ${entry.closedAt ? 'done' : ''}`}>{entry.closedAt ? '✓ 종료' : '○ 진행 중'}</span><span className="arrow">›</span>
         </button>)}</div>}
       </section>
-      <footer>기록으로 이어지는 안전한 교대 근무</footer>
+      <footer>SHINSEGAE INC</footer>
       <button className="primary handover-create" onClick={() => { setError(''); setForm(fresh()); }}>＋ 인수인계 작성</button>
     </main>}
     {modalOpen && <dialog aria-labelledby="dialog-title" onCancel={e => { e.preventDefault(); close(); }}>
